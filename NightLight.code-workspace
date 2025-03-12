@@ -6,6 +6,10 @@
 		},
 		{
 			"path": "NightLight_Tempo"
+		},
+		{
+			"name": "NightLight_Wave",
+			"path": "NightLight_Wave"
 		}
 	],
 	"settings": {}

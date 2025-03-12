@@ -1,5 +1,5 @@
-// Project: hut
-// c 2023, Framework Labs
+// Project: NightLight
+// Copyright: (c) 2025 Framework Labs
 
 #include "WeatherSymbols.h"
 
