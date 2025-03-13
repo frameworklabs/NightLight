@@ -1,5 +1,19 @@
 # NightLight
-An M5Stack powered night light solution
+An M5Stack powered night light
 
 ![image](https://github.com/user-attachments/assets/28cb7f89-49a4-4d3a-8475-490f4f781971)
 
+## Idea
+
+- Play around with M5Stack
+- Dimmable light for night
+- Alarm for wake-up
+- Time and Date
+- Weather info
+
+## Coding
+
+- Arduino
+- PlatformIO
+- Custom helper lib: [proto_activities](https://github.com/frameworklabs/proto_activities)
+- 3 Programms: Lumen, Tempo, Wave
