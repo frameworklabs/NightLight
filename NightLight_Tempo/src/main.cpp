@@ -21,8 +21,8 @@ using namespace proto_activities::ard_utils;
 
 // Helpers
 
-pa_activity (Delay, pa_ctx_tm(), int ticks) {
-    pa_delay (ticks);
+pa_activity (DelayS, pa_ctx_tm(), int s) {
+    pa_delay_s (s);
 } pa_end
 
 pa_activity (RaisingEdgeDetector, pa_ctx(bool prevVal), bool val, bool& edge) {
@@ -74,21 +74,21 @@ static Dpy dpy;
 pa_activity (DisplayUpdater, pa_ctx()) {
     pa_always {
         dpy.displayIfNeeded();
-    } pa_always_end;
-} pa_end;
+    } pa_always_end
+} pa_end
 
 pa_activity (ScreenWakeup, pa_ctx()) {
     M5.Display.wakeup();
     pa_pause; // This is not really needed.
-} pa_end;
+} pa_end
 
 // Input Receiver
 
 static void emitPressIfSet(PressSignal& press, uint8_t val) {
     switch (val) {
         case 1: pa_emit_val(press, Press::short_press); break;
-        case 2: pa_emit_val(press, Press::long_press); break;
-        case 3: pa_emit_val(press, Press::double_press); break;
+        case 2: pa_emit_val(press, Press::double_press); break;
+        case 3: pa_emit_val(press, Press::long_press); break;
         default: break;
     }
 }
@@ -130,34 +130,31 @@ pa_activity (WiFiConnectorAux, pa_ctx(), bool& connected) {
     pa_await (WiFi.isConnected());
     connected = true;
     //Serial.println("WiFiConnector start...done");
-} pa_end;
+} pa_end
 
-pa_activity (WiFiConnector, pa_ctx(pa_co_res(2); pa_use(WiFiConnectorAux); pa_use(Delay); bool connected)) {
+pa_activity (WiFiConnector, pa_ctx_tm(pa_use(WiFiConnectorAux); bool connected)) {
     pa_repeat {
-        pa_co(2) {
-            pa_with_weak (WiFiConnectorAux, pa_self.connected);
-            pa_with_weak (Delay, 50);
-        } pa_co_end;
+        pa_after_s_abort (5, WiFiConnectorAux, pa_self.connected);
 
         if (pa_self.connected) {
             break;
         }
 
         disconnectWifi();
-        pa_run (Delay, 50);
+        pa_delay_s (5);
     }
-} pa_end;
+} pa_end
 
-pa_activity (WiFiConnectionMaintainer, pa_ctx(pa_use(WiFiConnector); pa_use(Delay))) {
+pa_activity (WiFiConnectionMaintainer, pa_ctx_tm(pa_use(WiFiConnector))) {
     pa_every (!WiFi.isConnected()) {
-        pa_run (Delay, 10); // Wait 1 second reconnecting
+        pa_delay_s (1); // Wait 1 second before reconnecting
         pa_run (WiFiConnector);
-    } pa_every_end;
-} pa_end;
+    } pa_every_end
+} pa_end
 
 // NTP
 
-pa_activity (NTPEstablisher, pa_ctx(pa_use(Delay))) {
+pa_activity (NTPEstablisher, pa_ctx_tm()) {
     //Serial.println("Config Time...");
 
     // TODO: use https://timeapi.io/swagger/index.html instead
@@ -167,15 +164,15 @@ pa_activity (NTPEstablisher, pa_ctx(pa_use(Delay))) {
     //Serial.println("Getting local time..."); //Serial.flush();
     struct tm timeinfo;
     while (!getLocalTime(&timeinfo, 100)) {
-        pa_run (Delay, 10);
+        pa_delay_s (1);
     }
     //Serial.println("Getting local time...done");  
-} pa_end;
+} pa_end
 
 pa_activity (WiFiAndNTPConnector, pa_ctx(pa_use(WiFiConnector); pa_use(NTPEstablisher))) {
     pa_run (WiFiConnector);
     pa_run (NTPEstablisher);
-} pa_end;
+} pa_end
 
 // Alarm
 
@@ -245,8 +242,8 @@ static Prefs prefs;
 
 // Wait screen
 
-constexpr auto ARC_LEN = 180.0 / 4.0;
-constexpr auto ARC_INC = 180.0 / 10.0;
+static constexpr auto ARC_LEN = 180.0 / 4.0;
+static constexpr auto ARC_INC = 180.0 / 10.0;
 
 pa_activity (WaitScreen, pa_ctx(float angle; bool color)) {
     pa_always {
@@ -261,8 +258,8 @@ pa_activity (WaitScreen, pa_ctx(float angle; bool color)) {
         }
 
         dpy.setNeedsDisplay();
-    } pa_always_end;
-} pa_end;
+    } pa_always_end
+} pa_end
 
 // Clock Screen
 
@@ -327,7 +324,7 @@ static void renderAnalogClock(struct tm& timeinfo) {
     dpy.setNeedsDisplay();
 }
 
-pa_activity (ClockScreen, pa_ctx(pa_use(Delay); pa_use(ScreenWakeup)), bool analog) {
+pa_activity (ClockScreen, pa_ctx_tm(pa_use(ScreenWakeup)), bool analog) {
     pa_run (ScreenWakeup);
 
     pa_repeat {
@@ -344,9 +341,9 @@ pa_activity (ClockScreen, pa_ctx(pa_use(Delay); pa_use(ScreenWakeup)), bool anal
                 renderDigitalClock(timeinfo);
             }
         }
-        pa_run (Delay, 10);
+        pa_delay_s (1);
     }
-} pa_end;
+} pa_end
 
 pa_activity (ClockScreenController, pa_ctx(pa_use(ClockScreen)), const PressSignal& press) {
     pa_repeat {
@@ -357,7 +354,7 @@ pa_activity (ClockScreenController, pa_ctx(pa_use(ClockScreen)), const PressSign
         pa_when_abort (press && press.val() == Press::double_press, ClockScreen, false);
         prefs.writeIsAnalogClock(true);
     }
-} pa_end;
+} pa_end
 
 // Settings Screen
 
@@ -388,8 +385,8 @@ pa_activity (SettingsController, pa_ctx(), const PressSignal& up, const PressSig
         }
 
         alarm.dirty = true;
-    } pa_every_end;
-} pa_end;
+    } pa_every_end
+} pa_end
 
 pa_activity (SettingsPresenter, pa_ctx(), Alarm alarm) {
     pa_repeat {
@@ -410,18 +407,18 @@ pa_activity (SettingsPresenter, pa_ctx(), Alarm alarm) {
 
         pa_await (alarm.dirty);
     }
-} pa_end;
+} pa_end
 
 pa_activity (SettingsPersister, pa_ctx(), Alarm& alarm) {
     pa_every (alarm.dirty) {
         prefs.writeAlarm(alarm);
         alarm.dirty = false;
-    } pa_every_end;
-} pa_end;
+    } pa_every_end
+} pa_end
 
-pa_activity (SettingsTimeout, pa_ctx(pa_use(Delay)), const PressSignal& up, const PressSignal& down) {
-    pa_when_reset (up || down, Delay, 40);
-} pa_end;
+pa_activity (SettingsTimeout, pa_ctx(pa_use(DelayS)), const PressSignal& up, const PressSignal& down) {
+    pa_when_reset (up || down, DelayS, 4);
+} pa_end
 
 pa_activity (SettingsScreen, pa_ctx(pa_co_res(4); pa_defer_res;
                                     pa_use(ScreenWakeup); 
@@ -441,8 +438,8 @@ pa_activity (SettingsScreen, pa_ctx(pa_co_res(4); pa_defer_res;
         pa_with_weak (SettingsPresenter, pa_self.alarm);
         pa_with_weak (SettingsPersister, pa_self.alarm);
         pa_with (SettingsTimeout, up, down);
-    } pa_co_end;
-} pa_end;
+    } pa_co_end
+} pa_end
 
 // Weather Screen
 
@@ -583,7 +580,7 @@ private:
 static WeatherAccessor weatherAccessor;
 static WeatherData cachedWeather;
 
-pa_activity (WeatherProvider, pa_ctx(pa_use(Delay); int tries), WeatherData& weather) {
+pa_activity (WeatherProvider, pa_ctx_tm(int tries), WeatherData& weather) {
     pa_repeat {
         weather.isValid = false;
         pa_self.tries = 0;
@@ -601,7 +598,7 @@ pa_activity (WeatherProvider, pa_ctx(pa_use(Delay); int tries), WeatherData& wea
                 break;
             }
             //Serial.println("Failed loading weather - retrying in 2 seconds");
-            pa_run (Delay, 20); // retry every 2 seconds
+            pa_delay_s (2); // retry every 2 seconds
         }
 
         if (weatherAccessor.getWeather().isValid) {
@@ -609,16 +606,16 @@ pa_activity (WeatherProvider, pa_ctx(pa_use(Delay); int tries), WeatherData& wea
             weather = weatherAccessor.getWeather();
 
             //Serial.println("Succeeded retrieving weather - refreshing in 15 min");
-            pa_run (Delay, 36000 / 4); // update every 15 minutes in case of success
+            pa_delay_m (15); // update every 15 minutes in case of success
         } 
         else {
             weather = cachedWeather; // Better show old data than a spinner for 1 min.
 
             //Serial.println("Failed retrieving weather - retrying in 1 min");
-            pa_run (Delay, 600); // retry every minute in case of error
+            pa_delay_m (1); // retry every minute in case of error
         }
     }
-} pa_end;
+} pa_end
 
 pa_activity (TemperatureScreen, pa_ctx(WeatherData prevWeather), bool sigActivation, const WeatherData& weather) {
     pa_repeat {
@@ -644,115 +641,11 @@ pa_activity (TemperatureScreen, pa_ctx(WeatherData prevWeather), bool sigActivat
         pa_self.prevWeather = weather;
         pa_await (weather != pa_self.prevWeather || sigActivation);
     }
-} pa_end;
+} pa_end
 
-void drawWeatherCode(int weatherCode) {
-    const uint8_t* weatherSymbol = nullptr;
-    size_t weatherSymbolSize = 0;
-
-    switch (weatherCode) {
-        case 0: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_00; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_00); break;
-        case 1: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_01; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_01); break;
-        case 2: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_02; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_02); break;
-        case 3: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_03; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_03); break;
-        case 4: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_04; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_04); break;
-        case 5: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_05; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_05); break;
-        case 6: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_06; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_06); break;
-        case 7: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_07; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_07); break;
-        case 8: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_08; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_08); break;
-        case 9: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_09; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_09); break;
-        case 10: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_10; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_10); break;
-        case 11: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_11; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_11); break;
-        case 12: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_12; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_12); break;
-        case 13: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_13; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_13); break;
-        case 14: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_14; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_14); break;
-        case 15: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_15; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_15); break;
-        case 16: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_16; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_16); break;
-        case 17: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_17; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_17); break;
-        case 18: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_18; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_18); break;
-        case 19: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_19; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_19); break;
-        case 20: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_20; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_20); break;
-        case 21: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_21; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_21); break;
-        case 22: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_22; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_22); break;
-        case 23: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_23; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_23); break;
-        case 24: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_24; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_24); break;
-        case 25: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_25; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_25); break;
-        case 26: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_26; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_26); break;
-        case 27: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_27; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_27); break;
-        case 28: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_28; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_28); break;
-        case 29: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_29; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_29); break;
-        case 30: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_30; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_30); break;
-        case 31: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_31; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_31); break;
-        case 32: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_32; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_32); break;
-        case 33: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_33; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_33); break;
-        case 34: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_34; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_34); break;
-        case 35: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_35; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_35); break;
-        case 36: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_36; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_36); break;
-        case 37: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_37; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_37); break;
-        case 38: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_38; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_38); break;
-        case 39: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_39; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_39); break;
-        case 40: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_40; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_40); break;
-        case 41: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_41; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_41); break;
-        case 42: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_42; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_42); break;
-        case 43: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_43; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_43); break;
-        case 44: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_44; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_44); break;
-        case 45: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_45; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_45); break;
-        case 46: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_46; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_46); break;
-        case 47: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_47; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_47); break;
-        case 48: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_48; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_48); break;
-        case 49: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_49; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_49); break;
-        case 50: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_50; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_50); break;
-        case 51: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_51; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_51); break;
-        case 52: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_52; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_52); break;
-        case 53: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_53; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_53); break;
-        case 54: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_54; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_54); break;
-        case 55: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_55; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_55); break;
-        case 56: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_56; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_56); break;
-        case 57: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_57; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_57); break;
-        case 58: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_58; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_58); break;
-        case 59: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_59; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_59); break;
-        case 60: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_60; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_60); break;
-        case 61: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_61; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_61); break;
-        case 62: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_62; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_62); break;
-        case 63: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_63; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_63); break;
-        case 64: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_64; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_64); break;
-        case 65: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_65; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_65); break;
-        case 66: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_66; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_66); break;
-        case 67: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_67; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_67); break;
-        case 68: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_68; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_68); break;
-        case 69: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_69; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_69); break;
-        case 70: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_70; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_70); break;
-        case 71: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_71; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_71); break;
-        case 72: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_72; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_72); break;
-        case 73: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_73; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_73); break;
-        case 74: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_74; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_74); break;
-        case 75: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_75; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_75); break;
-        case 76: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_76; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_76); break;
-        case 77: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_77; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_77); break;
-        case 78: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_78; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_78); break;
-        case 79: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_79; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_79); break;
-        case 80: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_80; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_80); break;
-        case 81: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_81; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_81); break;
-        case 82: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_82; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_82); break;
-        case 83: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_83; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_83); break;
-        case 84: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_84; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_84); break;
-        case 85: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_85; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_85); break;
-        case 86: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_86; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_86); break;
-        case 87: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_87; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_87); break;
-        case 88: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_88; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_88); break;
-        case 89: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_89; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_89); break;
-        case 90: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_90; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_90); break;
-        case 91: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_91; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_91); break;
-        case 92: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_92; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_92); break;
-        case 93: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_93; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_93); break;
-        case 94: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_94; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_94); break;
-        case 95: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_95; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_95); break;
-        case 96: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_96; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_96); break;
-        case 97: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_97; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_97); break;
-        case 98: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_98; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_98); break;
-        case 99: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_99; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_99); break;
-        default: weatherSymbol = WeatherSymbol_WMO_PresentWeather_ww_00; weatherSymbolSize = sizeof(WeatherSymbol_WMO_PresentWeather_ww_00); break;
-    }
+static void drawWeatherCode(int weatherCode) {
+    size_t weatherSymbolSize;
+    const uint8_t* weatherSymbol = getWeatherSymbol(weatherCode, weatherSymbolSize);
 
     dpy().drawPng(weatherSymbol, weatherSymbolSize, 36, 10);
 }
@@ -778,7 +671,7 @@ pa_activity (PercipitationScreen, pa_ctx(WeatherData prevWeather), bool sigActiv
         pa_self.prevWeather = weather;
         pa_await (weather != pa_self.prevWeather || sigActivation);
     }
-} pa_end;
+} pa_end
 
 pa_activity (WeatherOrWaitScreenController, pa_ctx(pa_use(TemperatureScreen); pa_use(PercipitationScreen); pa_use(WaitScreen)), 
                                             bool sigActivation, const WeatherData& weather, const PressSignal& press) {
@@ -791,7 +684,7 @@ pa_activity (WeatherOrWaitScreenController, pa_ctx(pa_use(TemperatureScreen); pa
             pa_when_abort (!weather.isValid || (press && press.val() == Press::double_press), PercipitationScreen, sigActivation, weather);
         }
     }
-} pa_end;
+} pa_end
 
 pa_activity (WeatherScreenController, pa_ctx(pa_co_res(2); WeatherData weather;
                                              pa_use(WeatherProvider); pa_use(WeatherOrWaitScreenController)), 
@@ -799,8 +692,8 @@ pa_activity (WeatherScreenController, pa_ctx(pa_co_res(2); WeatherData weather;
     pa_co(2) {
         pa_with (WeatherProvider, pa_self.weather)
         pa_with (WeatherOrWaitScreenController, sigActivation, pa_self.weather, press);
-    } pa_co_end;
-} pa_end;
+    } pa_co_end
+} pa_end
 
 // Off Screen
 
@@ -810,7 +703,7 @@ pa_activity (OffScreenController, pa_ctx()) {
 
     M5.Display.sleep();
     pa_halt;
-} pa_end;
+} pa_end
 
 // UI
 
@@ -821,21 +714,21 @@ pa_activity (GadgetScreenController, pa_ctx(pa_use(ClockScreenController); pa_us
         pa_when_abort ((press && press.val() == Press::long_press) || isBuzzing, WeatherScreenController, sigActivation, press);
         pa_await_immediate (!press);
     }
-} pa_end;
+} pa_end
 
 pa_activity (SuspendingGadgetScreenController, pa_ctx(pa_use(GadgetScreenController)), bool isActive, bool sigActivation, bool isBuzzing, const PressSignal& press) {
     pa_when_suspend (!isActive, GadgetScreenController, sigActivation, isBuzzing, press);
-} pa_end;
+} pa_end
 
 pa_activity (SettingsScreenController, pa_ctx(pa_use(SettingsScreen)), const PressSignal& up, const PressSignal& down, bool isBuzzing, bool& showSettings) {
     pa_every (up || down) {
         showSettings = true;
         pa_when_abort (isBuzzing, SettingsScreen, up, down);
         showSettings = false;
-    } pa_every_end;
-} pa_end;
+    } pa_every_end
+} pa_end
 
-pa_activity (OnScreenController, pa_ctx(pa_co_res(4); pa_use(SettingsScreenController); 
+pa_activity (OnScreenController, pa_ctx(pa_co_res(3); pa_use(SettingsScreenController); 
                                         pa_use(SuspendingGadgetScreenController); pa_use(RaisingEdgeDetector);
                                         bool showSettings; bool sigActivation), 
                                  const PressSignal& press, const PressSignal& up, const PressSignal& down, bool isBuzzing) {
@@ -843,8 +736,8 @@ pa_activity (OnScreenController, pa_ctx(pa_co_res(4); pa_use(SettingsScreenContr
         pa_with (SettingsScreenController, up, down, isBuzzing, pa_self.showSettings);
         pa_with (RaisingEdgeDetector, !pa_self.showSettings, pa_self.sigActivation);
         pa_with (SuspendingGadgetScreenController, !pa_self.showSettings, pa_self.sigActivation, isBuzzing, press);
-    } pa_co_end;
-} pa_end;
+    } pa_co_end
+} pa_end
 
 pa_activity (UI, pa_ctx(pa_use(OnScreenController); pa_use(OffScreenController)), 
                  const PressSignal& press, const PressSignal& up, const PressSignal& down, bool isBuzzing) {
@@ -859,7 +752,7 @@ pa_activity (UI, pa_ctx(pa_use(OnScreenController); pa_use(OffScreenController))
             pa_when_abort ((press && press.val() == Press::short_press), OnScreenController, press, up, down, isBuzzing);
         }
     }
-} pa_end;
+} pa_end
 
 // Buzzer
 
@@ -876,8 +769,8 @@ pa_activity (AlarmTimeChecker, pa_ctx(), bool& active) {
                 active = time.tm_hour == alarm.hour && time.tm_min == alarm.minute && time.tm_sec == 0;
             }
         }
-    } pa_always_end;
-} pa_end;
+    } pa_always_end
+} pa_end
 
 static const int buzzerChannel = 0;
 
@@ -901,40 +794,34 @@ static void initBuzzer() {
     ledcAttachPin(spk_pin, buzzerChannel);
 }
 
-pa_activity (BuzzMaker, pa_ctx(pa_use(Delay); int i), bool withGap) {
+pa_activity (BuzzMaker, pa_ctx_tm(int i), bool withGap) {
     pa_repeat {
         for (pa_self.i = 0; pa_self.i < 4; ++pa_self.i) {
             ledcWriteNote(buzzerChannel, NOTE_C, 4);
-            pa_run (Delay, 1);
+            pa_delay_ms (100);
             ledcWriteTone(buzzerChannel, 0);
-            pa_run (Delay, 1);
+            pa_delay_ms (100);
         }
 
         if (withGap) {
-            pa_run (Delay, 5);
+            pa_delay_ms (500);
         }
     }
-} pa_end;
+} pa_end
 
-pa_activity (BuzzGenerator, pa_ctx(pa_co_res(2); pa_use(Delay); pa_use(BuzzMaker); int i)) {
+pa_activity (BuzzGenerator, pa_ctx_tm(pa_use(BuzzMaker))) {
     enableSpeaker();
     pa_pause;
 
-    pa_co(2) {
-        pa_with_weak (BuzzMaker, true);
-        pa_with (Delay, 200);
-    } pa_co_end;
+    pa_after_s_abort (20, BuzzMaker, true);
 
     disableSpeaker();
     pa_pause;
     enableSpeaker();
     pa_pause;
 
-    pa_co(2) {
-        pa_with_weak (BuzzMaker, false);
-        pa_with (Delay, 100);
-    } pa_co_end;
-} pa_end;
+    pa_after_s_abort (10, BuzzMaker, false);
+} pa_end
 
 pa_activity (BuzzerController, pa_ctx(pa_use(BuzzGenerator)), bool active, const PressSignal& press, const PressSignal& up, const PressSignal& down, bool& isBuzzing) {
     pa_every (active) {
@@ -942,19 +829,19 @@ pa_activity (BuzzerController, pa_ctx(pa_use(BuzzGenerator)), bool active, const
         pa_when_abort (press || up || down, BuzzGenerator);
         isBuzzing = false;
         disableSpeaker();
-    } pa_every_end;
-} pa_end;
+    } pa_every_end
+} pa_end
 
 pa_activity (Buzzer, pa_ctx(pa_co_res(2); pa_use(AlarmTimeChecker); pa_use(BuzzerController); bool active), const PressSignal& press, const PressSignal& up, const PressSignal& down, bool& isBuzzing) {
     pa_co(2) {
         pa_with (AlarmTimeChecker, pa_self.active);
         pa_with (BuzzerController, pa_self.active, press, up, down, isBuzzing);
-    } pa_co_end;
-} pa_end;
+    } pa_co_end
+} pa_end
 
 // Main
 
-pa_activity (Main, pa_ctx(pa_co_res(8); pa_signal_res;
+pa_activity (Main, pa_ctx(pa_co_res(6); pa_signal_res;
                           pa_use(WiFiAndNTPConnector); pa_use(WiFiConnectionMaintainer); pa_use(PressRecognizer);
                           pa_use(UI); pa_use(Buzzer); pa_use(DisplayUpdater); pa_use(WaitScreen); pa_use(InputReceiver);
                           pa_def_val_signal(Press, press); pa_def_val_signal(Press, up); pa_def_val_signal(Press, down);
@@ -964,7 +851,7 @@ pa_activity (Main, pa_ctx(pa_co_res(8); pa_signal_res;
         pa_with (WiFiAndNTPConnector);
         pa_with_weak (WaitScreen);
         pa_with_weak (DisplayUpdater);
-    } pa_co_end;
+    } pa_co_end
 
     pa_co(6) {
         pa_with (WiFiConnectionMaintainer);
@@ -973,8 +860,8 @@ pa_activity (Main, pa_ctx(pa_co_res(8); pa_signal_res;
         pa_with (Buzzer, pa_self.press, pa_self.up, pa_self.down, pa_self.isBuzzing);
         pa_with (UI, pa_self.press, pa_self.up, pa_self.down, pa_self.isBuzzing);
         pa_with (DisplayUpdater);
-    } pa_co_end;
-} pa_end;
+    } pa_co_end
+} pa_end
 
 // Setup and Loop
 
