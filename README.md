@@ -11,6 +11,10 @@ An M5Stack powered night light
 - Time and Date
 - Weather info
 
+## Schematics
+
+<img width="925" alt="Schematics" src="https://github.com/user-attachments/assets/eea763c3-20d4-42a1-82fb-cd7696e1edb9" />
+
 ## Coding
 
 - Arduino
