@@ -158,8 +158,8 @@ pa_activity (NTPEstablisher, pa_ctx_tm()) {
     //Serial.println("Config Time...");
 
     // TODO: use https://timeapi.io/swagger/index.html instead
-    configTime(3600, 0, "time.ovgu.de"); // winter time
-    //configTime(3600, 3600, "time.ovgu.de"); // summer time
+    //configTime(3600, 0, "time.ovgu.de"); // winter time
+    configTime(3600, 3600, "time.ovgu.de"); // summer time
 
     //Serial.println("Getting local time..."); //Serial.flush();
     struct tm timeinfo;
@@ -327,7 +327,7 @@ static void renderAnalogClock(struct tm& timeinfo) {
 pa_activity (ClockScreen, pa_ctx_tm(pa_use(ScreenWakeup)), bool analog) {
     pa_run (ScreenWakeup);
 
-    pa_repeat {
+    pa_every_s (1) {
         struct tm timeinfo;
         if (!getLocalTime(&timeinfo, 50)) {
             dpy().clear();
@@ -341,8 +341,7 @@ pa_activity (ClockScreen, pa_ctx_tm(pa_use(ScreenWakeup)), bool analog) {
                 renderDigitalClock(timeinfo);
             }
         }
-        pa_delay_s (1);
-    }
+    } pa_every_end
 } pa_end
 
 pa_activity (ClockScreenController, pa_ctx(pa_use(ClockScreen)), const PressSignal& press) {
