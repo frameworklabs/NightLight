@@ -265,10 +265,10 @@ pa_activity (OffMode, pa_ctx()) {
 pa_activity (ModeController, pa_ctx(pa_use(OnMode); pa_use(OffMode)), const PressSignal& press, bool& isOn) {
     pa_repeat {
         isOn = true;
-        pa_when_abort (press, OnMode);
+        pa_when_abort (press && press.val() == Press::short_press, OnMode);
 
         isOn = false;
-        pa_when_abort (press, OffMode);
+        pa_when_abort (press && press.val() == Press::short_press, OffMode);
     }
 } pa_end
 
