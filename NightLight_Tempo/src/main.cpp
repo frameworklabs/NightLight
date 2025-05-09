@@ -772,12 +772,19 @@ pa_activity (AlarmTimeChecker, pa_ctx(), bool& active) {
 } pa_end
 
 static const int buzzerChannel = 0;
+static int speakerEnableCount = 0;
 
 static void enableSpeaker() {
+    if (speakerEnableCount++ > 0) {
+        return;
+    }
     digitalWrite(6, 1);
 }
 
 static void disableSpeaker() {
+    if (--speakerEnableCount > 0) {
+        return;
+    }
     digitalWrite(6, 0);
 }
 
@@ -838,10 +845,59 @@ pa_activity (Buzzer, pa_ctx(pa_co_res(2); pa_use(AlarmTimeChecker); pa_use(Buzze
     } pa_co_end
 } pa_end
 
+// Press Tone Generator
+
+pa_activity (ShortToneMaker, pa_ctx_tm(pa_defer_res)) {
+    pa_defer {
+        ledcWriteTone(buzzerChannel, 0);
+    };
+    ledcWriteNote(buzzerChannel, NOTE_C, 4);
+    pa_delay_ms (100);
+} pa_end
+
+pa_activity (DoubleToneMaker, pa_ctx_tm(pa_defer_res)) {
+    pa_defer {
+        ledcWriteTone(buzzerChannel, 0);
+    };
+    ledcWriteNote(buzzerChannel, NOTE_E, 4);
+    pa_delay_ms (100);
+    ledcWriteTone(buzzerChannel, 0);
+    pa_delay_ms (100);
+    ledcWriteNote(buzzerChannel, NOTE_E, 4);
+    pa_delay_ms (100);
+} pa_end
+
+pa_activity (LongToneMaker, pa_ctx_tm(pa_defer_res)) {
+    pa_defer {
+        ledcWriteTone(buzzerChannel, 0);
+    };
+    ledcWriteNote(buzzerChannel, NOTE_G, 4);
+    pa_halt;
+} pa_end
+
+pa_activity (PressToneGenerator, pa_ctx_tm(pa_use(ShortToneMaker); pa_use(DoubleToneMaker); pa_use(LongToneMaker)), const PressSignal& press) {
+    pa_repeat {
+        pa_await_immediate (press);
+
+        enableSpeaker();
+        pa_delay_ms (100);
+
+        if (press.val() == Press::short_press) {
+            pa_when_abort (press, ShortToneMaker);
+        } else if (press.val() == Press::double_press) {
+            pa_when_abort (press, DoubleToneMaker);
+        } else if (press.val() == Press::long_press) {
+            pa_when_abort (!press || press.val() != Press::long_press, LongToneMaker);
+        }
+
+        disableSpeaker();
+    }
+} pa_end
+
 // Main
 
-pa_activity (Main, pa_ctx(pa_co_res(6); pa_signal_res;
-                          pa_use(WiFiAndNTPConnector); pa_use(WiFiConnectionMaintainer); pa_use(PressRecognizer);
+pa_activity (Main, pa_ctx(pa_co_res(7); pa_signal_res;
+                          pa_use(WiFiAndNTPConnector); pa_use(WiFiConnectionMaintainer); pa_use(PressRecognizer); pa_use(PressToneGenerator);
                           pa_use(UI); pa_use(Buzzer); pa_use(DisplayUpdater); pa_use(WaitScreen); pa_use(InputReceiver);
                           pa_def_val_signal(Press, press); pa_def_val_signal(Press, up); pa_def_val_signal(Press, down);
                           bool isBuzzing),
@@ -852,10 +908,11 @@ pa_activity (Main, pa_ctx(pa_co_res(6); pa_signal_res;
         pa_with_weak (DisplayUpdater);
     } pa_co_end
 
-    pa_co(6) {
+    pa_co(7) {
         pa_with (WiFiConnectionMaintainer);
         pa_with (PressRecognizer, 41, pa_self.press);
         pa_with (InputReceiver, pa_self.press, pa_self.up, pa_self.down);
+        pa_with (PressToneGenerator, pa_self.press);
         pa_with (Buzzer, pa_self.press, pa_self.up, pa_self.down, pa_self.isBuzzing);
         pa_with (UI, pa_self.press, pa_self.up, pa_self.down, pa_self.isBuzzing);
         pa_with (DisplayUpdater);
