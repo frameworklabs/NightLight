@@ -772,25 +772,10 @@ pa_activity (AlarmTimeChecker, pa_ctx(), bool& active) {
 } pa_end
 
 static const int buzzerChannel = 0;
-static int speakerEnableCount = 0;
-
-static void enableSpeaker() {
-    if (speakerEnableCount++ > 0) {
-        return;
-    }
-    digitalWrite(6, 1);
-}
-
-static void disableSpeaker() {
-    if (--speakerEnableCount > 0) {
-        return;
-    }
-    digitalWrite(6, 0);
-}
 
 static void initBuzzer() {
     pinMode(6, OUTPUT);
-    disableSpeaker();
+    digitalWrite(6, 0);
 
     const int spk_pin   = 5;
     int freq            = 50;
@@ -800,7 +785,35 @@ static void initBuzzer() {
     ledcAttachPin(spk_pin, buzzerChannel);
 }
 
-pa_activity (BuzzMaker, pa_ctx_tm(int i), bool withGap) {
+pa_activity (AudioRequestAccumulator, pa_ctx(), int& requests, int& totalRequests) {
+    pa_always {
+        totalRequests += requests;
+        requests = 0;
+    } pa_always_end
+} pa_end
+
+pa_activity (AudioRequestController, pa_ctx(), int totalRequests, bool& enabled) {
+    pa_every (totalRequests > 0) {
+        digitalWrite(6, 1);
+        enabled = true; // will indicate availibility in next tick, as AudioManager runs last
+
+        pa_await (totalRequests <= 0);
+        digitalWrite(6, 0);
+        enabled = false;
+    } pa_every_end
+} pa_end
+
+pa_activity (AudioManager, pa_ctx(pa_co_res(2); pa_use(AudioRequestAccumulator); pa_use(AudioRequestController); int totalRequests), int& requests, bool& enabled) {
+    pa_co(2) {
+        pa_with (AudioRequestAccumulator, requests, pa_self.totalRequests);
+        pa_with (AudioRequestController, pa_self.totalRequests, enabled);
+    } pa_co_end
+} pa_end
+
+pa_activity (BuzzMaker, pa_ctx_tm(pa_defer_res; int i), bool withGap) {
+    pa_defer {
+        ledcWriteTone(buzzerChannel, 0);
+    };
     pa_repeat {
         for (pa_self.i = 0; pa_self.i < 4; ++pa_self.i) {
             ledcWriteNote(buzzerChannel, NOTE_C, 4);
@@ -815,50 +828,50 @@ pa_activity (BuzzMaker, pa_ctx_tm(int i), bool withGap) {
     }
 } pa_end
 
-pa_activity (BuzzGenerator, pa_ctx_tm(pa_use(BuzzMaker))) {
-    enableSpeaker();
-    pa_pause;
-
+pa_activity (BuzzGenerator, pa_ctx_tm(pa_use(BuzzMaker)), bool audioEnabled) {
+    pa_await_immediate (audioEnabled);
     pa_after_s_abort (20, BuzzMaker, true);
-
-    disableSpeaker();
-    pa_pause;
-    enableSpeaker();
-    pa_pause;
-
+    pa_delay_ms (300);
     pa_after_s_abort (10, BuzzMaker, false);
 } pa_end
 
-pa_activity (BuzzerController, pa_ctx(pa_use(BuzzGenerator)), bool active, const PressSignal& press, const PressSignal& up, const PressSignal& down, bool& isBuzzing) {
+pa_activity (BuzzerController, pa_ctx(pa_use(BuzzGenerator)), 
+                               bool active, const PressSignal& press, const PressSignal& up, const PressSignal& down, 
+                               bool audioEnabled, int& audioRequests, bool& isBuzzing) {
     pa_every (active) {
+        ++audioRequests;
         isBuzzing = true;
-        pa_when_abort (press || up || down, BuzzGenerator);
+        pa_when_abort (press || up || down, BuzzGenerator, audioEnabled);
         isBuzzing = false;
-        disableSpeaker();
+        --audioRequests;
     } pa_every_end
 } pa_end
 
-pa_activity (Buzzer, pa_ctx(pa_co_res(2); pa_use(AlarmTimeChecker); pa_use(BuzzerController); bool active), const PressSignal& press, const PressSignal& up, const PressSignal& down, bool& isBuzzing) {
+pa_activity (Buzzer, pa_ctx(pa_co_res(2); pa_use(AlarmTimeChecker); pa_use(BuzzerController); bool active), 
+                     const PressSignal& press, const PressSignal& up, const PressSignal& down, 
+                     bool audioEnabled, int& audioRequests, bool& isBuzzing) {
     pa_co(2) {
         pa_with (AlarmTimeChecker, pa_self.active);
-        pa_with (BuzzerController, pa_self.active, press, up, down, isBuzzing);
+        pa_with (BuzzerController, pa_self.active, press, up, down, audioEnabled, audioRequests, isBuzzing);
     } pa_co_end
 } pa_end
 
 // Press Tone Generator
 
-pa_activity (ShortToneMaker, pa_ctx_tm(pa_defer_res)) {
+pa_activity (ShortToneMaker, pa_ctx_tm(pa_defer_res), bool audioEnabled) {
     pa_defer {
         ledcWriteTone(buzzerChannel, 0);
     };
+    pa_await_immediate (audioEnabled);
     ledcWriteNote(buzzerChannel, NOTE_C, 4);
     pa_delay_ms (100);
 } pa_end
 
-pa_activity (DoubleToneMaker, pa_ctx_tm(pa_defer_res)) {
+pa_activity (DoubleToneMaker, pa_ctx_tm(pa_defer_res), bool audioEnabled) {
     pa_defer {
         ledcWriteTone(buzzerChannel, 0);
     };
+    pa_await_immediate (audioEnabled);
     ledcWriteNote(buzzerChannel, NOTE_E, 4);
     pa_delay_ms (100);
     ledcWriteTone(buzzerChannel, 0);
@@ -867,40 +880,42 @@ pa_activity (DoubleToneMaker, pa_ctx_tm(pa_defer_res)) {
     pa_delay_ms (100);
 } pa_end
 
-pa_activity (LongToneMaker, pa_ctx_tm(pa_defer_res)) {
+pa_activity (LongToneMaker, pa_ctx_tm(pa_defer_res), bool audioEnabled) {
     pa_defer {
         ledcWriteTone(buzzerChannel, 0);
     };
+    pa_await_immediate (audioEnabled);
     ledcWriteNote(buzzerChannel, NOTE_G, 4);
     pa_halt;
 } pa_end
 
-pa_activity (PressToneGenerator, pa_ctx_tm(pa_use(ShortToneMaker); pa_use(DoubleToneMaker); pa_use(LongToneMaker)), const PressSignal& press) {
+pa_activity (PressToneGenerator, pa_ctx_tm(pa_use(ShortToneMaker); pa_use(DoubleToneMaker); pa_use(LongToneMaker)), 
+                                 const PressSignal& press, bool audioEnabled, int& audioRequests) {
     pa_repeat {
         pa_await_immediate (press);
 
-        enableSpeaker();
-        pa_delay_ms (100);
+        ++audioRequests;
 
         if (press.val() == Press::short_press) {
-            pa_when_abort (press, ShortToneMaker);
+            pa_when_abort (press, ShortToneMaker, audioEnabled);
         } else if (press.val() == Press::double_press) {
-            pa_when_abort (press, DoubleToneMaker);
+            pa_when_abort (press, DoubleToneMaker, audioEnabled);
         } else if (press.val() == Press::long_press) {
-            pa_when_abort (!press || press.val() != Press::long_press, LongToneMaker);
+            pa_when_abort (!press || press.val() != Press::long_press, LongToneMaker, audioEnabled);
         }
 
-        disableSpeaker();
+        --audioRequests;
     }
 } pa_end
 
 // Main
 
-pa_activity (Main, pa_ctx(pa_co_res(7); pa_signal_res;
-                          pa_use(WiFiAndNTPConnector); pa_use(WiFiConnectionMaintainer); pa_use(PressRecognizer); pa_use(PressToneGenerator);
+pa_activity (Main, pa_ctx(pa_co_res(8); pa_signal_res;
+                          pa_use(WiFiAndNTPConnector); pa_use(WiFiConnectionMaintainer); pa_use(PressRecognizer); 
+                          pa_use(AudioManager); pa_use(PressToneGenerator);
                           pa_use(UI); pa_use(Buzzer); pa_use(DisplayUpdater); pa_use(WaitScreen); pa_use(InputReceiver);
                           pa_def_val_signal(Press, press); pa_def_val_signal(Press, up); pa_def_val_signal(Press, down);
-                          bool isBuzzing),
+                          bool isBuzzing; bool audioEnabled; int audioRequests),
                    bool didOverrun) {
     pa_co (3) {
         pa_with (WiFiAndNTPConnector);
@@ -908,13 +923,14 @@ pa_activity (Main, pa_ctx(pa_co_res(7); pa_signal_res;
         pa_with_weak (DisplayUpdater);
     } pa_co_end
 
-    pa_co(7) {
+    pa_co(8) {
         pa_with (WiFiConnectionMaintainer);
         pa_with (PressRecognizer, 41, pa_self.press);
         pa_with (InputReceiver, pa_self.press, pa_self.up, pa_self.down);
-        pa_with (PressToneGenerator, pa_self.press);
-        pa_with (Buzzer, pa_self.press, pa_self.up, pa_self.down, pa_self.isBuzzing);
+        pa_with (PressToneGenerator, pa_self.press, pa_self.audioEnabled, pa_self.audioRequests);
+        pa_with (Buzzer, pa_self.press, pa_self.up, pa_self.down, pa_self.audioEnabled, pa_self.audioRequests, pa_self.isBuzzing);
         pa_with (UI, pa_self.press, pa_self.up, pa_self.down, pa_self.isBuzzing);
+        pa_with (AudioManager, pa_self.audioRequests, pa_self.audioEnabled);
         pa_with (DisplayUpdater);
     } pa_co_end
 } pa_end
