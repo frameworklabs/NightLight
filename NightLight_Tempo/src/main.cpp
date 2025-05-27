@@ -880,13 +880,13 @@ pa_activity (DoubleToneMaker, pa_ctx_tm(pa_defer_res), bool audioEnabled) {
     pa_delay_ms (100);
 } pa_end
 
-pa_activity (LongToneMaker, pa_ctx_tm(pa_defer_res), bool audioEnabled) {
+pa_activity (LongToneMaker, pa_ctx_tm(pa_defer_res), bool pressed, bool audioEnabled) {
     pa_defer {
         ledcWriteTone(buzzerChannel, 0);
     };
     pa_await_immediate (audioEnabled);
     ledcWriteNote(buzzerChannel, NOTE_G, 4);
-    pa_halt;
+    pa_await (!pressed); // Wait until the button is released
 } pa_end
 
 pa_activity (PressToneGenerator, pa_ctx_tm(pa_use(ShortToneMaker); pa_use(DoubleToneMaker); pa_use(LongToneMaker)), 
@@ -901,7 +901,7 @@ pa_activity (PressToneGenerator, pa_ctx_tm(pa_use(ShortToneMaker); pa_use(Double
         } else if (press.val() == Press::double_press) {
             pa_when_abort (press, DoubleToneMaker, audioEnabled);
         } else if (press.val() == Press::long_press) {
-            pa_when_abort (!press || press.val() != Press::long_press, LongToneMaker, audioEnabled);
+            pa_when_abort (press && press.val() != Press::long_press, LongToneMaker, press, audioEnabled);
         }
 
         --audioRequests;
